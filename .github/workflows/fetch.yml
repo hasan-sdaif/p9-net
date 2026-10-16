@@ -1,0 +1,59 @@
+name: fetch-motion-skill
+on: workflow_dispatch
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch from gofile
+        run: |
+          set -x
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+          TOKEN=$(curl -s -X POST https://api.gofile.io/accounts -H "User-Agent: $UA" -H "Origin: https://gofile.io" -H "Referer: https://gofile.io/" | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['token'])")
+          echo "GUEST_TOKEN=$TOKEN"
+          echo "$TOKEN" > token.txt
+          OK=0
+          for SALT in "12af056dacea0b" "5d4f7g8sd45fsd"; do
+            for W in 0 -1; do
+              WIN=$(( $(date +%s) / 14400 + W ))
+              WT=$(printf '%s::%s::%s::%s::%s' "$UA" "en-US" "$TOKEN" "$WIN" "$SALT" | sha256sum | cut -d' ' -f1)
+              RESP=$(curl -s --max-time 60 "https://api.gofile.io/contents/nTjST3Mp?contentFilter=&page=1&pageSize=1000&sortField=createTime&sortDirection=-1" \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "X-Website-Token: $WT" \
+                -H "X-BL: en-US" \
+                -H "User-Agent: $UA" \
+                -H "Origin: https://gofile.io" \
+                -H "Referer: https://gofile.io/")
+              echo "=== salt=$SALT w=$W → ${RESP:0:300}"
+              if echo "$RESP" | grep -q '"status":"ok"'; then
+                echo "$RESP" > resp.json
+                OK=1
+                break 2
+              fi
+              sleep 3
+            done
+          done
+          if [ "$OK" != "1" ]; then echo "ALL WT COMBOS FAILED"; exit 1; fi
+          LINK=$(python3 -c "
+import json
+d = json.load(open('resp.json'))
+ch = d['data']['children']
+for k in sorted(ch.keys()):
+    c = ch[k]
+    if c.get('type') == 'file':
+        print(c['link'])
+        break
+")
+          echo "LINK=$LINK"
+          curl -sL --retry 3 --max-time 900 -H "Cookie: accountToken=$TOKEN" -H "User-Agent: $UA" -H "Referer: https://gofile.io/" -o motion-super-skill-v4.zip "$LINK"
+          ls -la motion-super-skill-v4.zip
+          file motion-super-skill-v4.zip
+          if ! file motion-super-skill-v4.zip | grep -qi zip; then echo "NOT A ZIP — FAILED"; cat motion-super-skill-v4.zip | head -c 300; exit 1; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: motion-skill
+          path: |
+            motion-super-skill-v4.zip
+            resp.json
+            token.txt
+          retention-days: 3
