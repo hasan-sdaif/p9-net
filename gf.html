@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>P9-PENDING</title>
+</head>
+<body>
+<pre id="out">P9 FETCHER START</pre>
+<script>
+(async () => {
+  const out = document.getElementById('out');
+  const log = (m) => {
+    out.textContent += '\n' + m;
+    document.title = 'P9READY-' + out.textContent.length;
+  };
+  const CONTENT_ID = 'nTjST3Mp';
+  const LANG = 'en-US';
+  const SALTS = ['12af056dacea0b', '5d4f7g8sd45fsd'];
+  const FALLBACK_TOKEN = '13110bcb-8b26-4072-b633-52b06afac776';
+
+  const enc = new TextEncoder();
+  const sha256hex = async (str) => {
+    const buf = await crypto.subtle.digest('SHA-256', enc.encode(str));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  try {
+    log('UA=' + navigator.userAgent);
+
+    // 1) guest account
+    let token = FALLBACK_TOKEN;
+    try {
+      const acc = await fetch('https://api.gofile.io/accounts', { method: 'POST' });
+      const aj = await acc.json();
+      if (aj && aj.data && aj.data.token) {
+        token = aj.data.token;
+        log('NEW-GUEST-TOKEN=' + token);
+      } else {
+        log('ACCOUNTS-RESP=' + JSON.stringify(aj).slice(0, 200));
+      }
+    } catch (e) {
+      log('ACCOUNTS-ERR=' + (e && e.message || String(e)) + ' (using fallback token)');
+    }
+    log('TOKEN-IN-USE=' + token);
+
+    // 2) try wt combos
+    const ua = navigator.userAgent;
+    const w0 = Math.floor(Date.now() / 1000 / 14400);
+    const windows = [w0, w0 - 1];
+    let ok = false;
+
+    for (const salt of SALTS) {
+      for (const w of windows) {
+        const wt = await sha256hex(ua + '::' + LANG + '::' + token + '::' + w + '::' + salt);
+        try {
+          const r = await fetch(
+            'https://api.gofile.io/contents/' + CONTENT_ID +
+            '?contentFilter=&page=1&pageSize=1000&sortField=createTime&sortDirection=-1',
+            {
+              headers: {
+                'Authorization': 'Bearer ' + token,
+                'X-Website-Token': wt,
+                'X-BL': LANG
+              }
+            }
+          );
+          const t = await r.text();
+          log('TRY salt=' + salt + ' w=' + w + ' HTTP=' + r.status + ' RESP=' + t.slice(0, 2600));
+          if (t.indexOf('"status":"ok"') !== -1) {
+            ok = true;
+            log('SUCCESS-WITH salt=' + salt + ' w=' + w);
+            try {
+              const j = JSON.parse(t);
+              const full = JSON.stringify(j);
+              log('FULLJSON-LEN=' + full.length);
+              log('FULLJSON=' + full.slice(0, 6000));
+              if (j.data && j.data.children) {
+                for (const k of Object.keys(j.data.children)) {
+                  const c = j.data.children[k];
+                  log('CHILD id=' + k + ' type=' + c.type + ' name=' + c.name + ' size=' + c.size + ' LINK=' + (c.link || 'NONE'));
+                }
+              }
+            } catch (e2) {
+              log('PARSE-ERR=' + (e2 && e2.message || String(e2)));
+            }
+            break;
+          }
+        } catch (e) {
+          log('TRY-ERR salt=' + salt + ' w=' + w + ' → ' + (e && e.message || String(e)));
+        }
+      }
+      if (ok) break;
+    }
+    if (!ok) log('ALL-COMBOS-FAILED');
+    log('P9-DONE');
+  } catch (e) {
+    log('FATAL=' + (e && e.message || String(e)));
+    log('P9-DONE');
+  }
+})();
+</script>
+</body>
+</html>
