@@ -34,16 +34,7 @@ jobs:
             done
           done
           if [ "$OK" != "1" ]; then echo "ALL WT COMBOS FAILED"; exit 1; fi
-          LINK=$(python3 -c "
-import json
-d = json.load(open('resp.json'))
-ch = d['data']['children']
-for k in sorted(ch.keys()):
-    c = ch[k]
-    if c.get('type') == 'file':
-        print(c['link'])
-        break
-")
+          LINK=$(python3 -c "import json; d=json.load(open('resp.json')); ch=d['data']['children']; print([c['link'] for c in ch.values() if c.get('type')=='file'][0])")
           echo "LINK=$LINK"
           curl -sL --retry 3 --max-time 900 -H "Cookie: accountToken=$TOKEN" -H "User-Agent: $UA" -H "Referer: https://gofile.io/" -o motion-super-skill-v4.zip "$LINK"
           ls -la motion-super-skill-v4.zip
